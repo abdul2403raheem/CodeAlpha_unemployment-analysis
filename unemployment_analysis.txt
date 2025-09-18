@@ -1,0 +1,144 @@
+# Unemployment Analysis in Colab
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from statsmodels.tsa.seasonal import seasonal_decompose
+from google.colab import files
+
+sns.set(style="whitegrid", context="talk")
+
+# -------------------------------
+# Step 1: Upload the dataset
+# -------------------------------
+print("Please upload your unemployment CSV file:")
+uploaded = files.upload()  # This will prompt you to choose a file
+
+# Get uploaded file name
+filename = list(uploaded.keys())[0]
+print(f"Uploaded file: {filename}")
+
+# Step 2: Load dataset
+df = pd.read_csv(filename)
+print("\nDataset loaded successfully!")
+print("Shape:", df.shape)
+print(df.head())
+
+# Step 3: Clean dataset
+df = df.drop_duplicates().reset_index(drop=True)
+
+# Automatically detect date column
+date_col = None
+for col in df.columns:
+    if "date" in col.lower() or "month" in col.lower() or "year" in col.lower():
+        date_col = col
+        break
+if date_col is None:
+    raise ValueError("Could not automatically detect a date column. Please ensure your CSV has a 'date' column.")
+
+# Automatically detect unemployment rate column
+rate_col = None
+for col in df.columns:
+    if "unemploy" in col.lower() or "rate" in col.lower() or "percent" in col.lower():
+        rate_col = col
+        break
+if rate_col is None:
+    raise ValueError("Could not automatically detect unemployment rate column. Please ensure your CSV has it.")
+
+print(f"Using date column: {date_col}, rate column: {rate_col}")
+
+# Parse dates
+df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+df = df.dropna(subset=[date_col])
+df = df.sort_values(date_col).reset_index(drop=True)
+
+# Convert unemployment rate to numeric
+df[rate_col] = pd.to_numeric(df[rate_col], errors='coerce')
+df[rate_col] = df[rate_col].interpolate(method='linear', limit_direction='both')
+
+# Set date as index
+df.set_index(date_col, inplace=True)
+
+# Resample monthly if irregular
+ts = df[rate_col].resample('M').mean()
+ts.name = "unemployment_rate"
+
+# -------------------------------
+# Step 4: Plot overall trend
+# -------------------------------
+plt.figure(figsize=(12,5))
+plt.plot(ts.index, ts.values, marker='o', linewidth=1, color='red')
+plt.title("Unemployment Rate Over Time")
+plt.xlabel("Date")
+plt.ylabel("Unemployment Rate (%)")
+plt.grid(True)
+plt.show()
+
+# -------------------------------
+# Step 5: COVID-19 impact
+# -------------------------------
+pre_covid = ts[:'2019-12-31']
+covid = ts['2020-01-01':'2021-12-31']
+post_covid = ts['2022-01-01':]
+
+plt.figure(figsize=(12,5))
+plt.plot(ts.index, ts.values, label="Monthly unemployment", color='black')
+if len(pre_covid) > 0:
+    plt.axvspan(pre_covid.index.min(), pre_covid.index.max(), color='green', alpha=0.12, label='Pre-COVID')
+if len(covid) > 0:
+    plt.axvspan(covid.index.min(), covid.index.max(), color='red', alpha=0.12, label='COVID (2020-21)')
+if len(post_covid) > 0:
+    plt.axvspan(post_covid.index.min(), post_covid.index.max(), color='blue', alpha=0.07, label='Post-COVID')
+plt.title("Unemployment Rate: Pre-COVID vs COVID vs Post-COVID")
+plt.xlabel("Date")
+plt.ylabel("Unemployment Rate (%)")
+plt.legend()
+plt.show()
+
+# -------------------------------
+# Step 6: Seasonality analysis
+# -------------------------------
+if len(ts) >= 24:  # need at least 2 years for monthly seasonal decomposition
+    decomposition = seasonal_decompose(ts, model='additive', period=12)
+    fig = decomposition.plot()
+    fig.set_size_inches(12,9)
+    plt.show()
+
+    # Monthly pattern
+    monthly_avg = ts.groupby(ts.index.month).mean()
+    monthly_avg.index = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    plt.figure(figsize=(10,5))
+    sns.barplot(x=monthly_avg.index, y=monthly_avg.values)
+    plt.title("Average Unemployment Rate by Month (Seasonal Pattern)")
+    plt.ylabel("Unemployment Rate (%)")
+    plt.xlabel("Month")
+    plt.show()
+
+# -------------------------------
+# Step 7: Key statistics & insights
+# -------------------------------
+print("\n--- Key Statistics ---")
+print(f"Overall Min: {ts.min():.2f}%")
+print(f"Overall Max: {ts.max():.2f}%")
+print(f"Mean: {ts.mean():.2f}%")
+print(f"Latest Month: {ts.index[-1].date()} = {ts.iloc[-1]:.2f}%")
+
+# Detect peaks (local maxima)
+peaks = ts[(ts.shift(1) < ts) & (ts.shift(-1) < ts)]
+print(f"Detected {len(peaks)} local peaks. Top 5:")
+print(peaks.sort_values(ascending=False).head(5))
+
+
+Please upload your unemployment CSV file:
+Uploaded file: unemployment.csv
+
+Dataset loaded successfully!
+Shape: (96, 2)
+         Date  UnemploymentRate
+0  2017-01-01               6.2
+1  2017-02-01               6.1
+2  2017-03-01               6.0
+3  2017-04-01               5.9
+4  2017-05-01               5.8
+
+Using date column: Date, rate column: UnemploymentRate
